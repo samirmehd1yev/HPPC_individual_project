@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include <math.h>
 #include <string.h>
-#include "graphics/graphics.h"
 #include <sys/time.h>
+#include "graphics/graphics.h"
 
 const double epsilon_0 = 1e-3; // Softening factor
 
@@ -16,42 +16,25 @@ const double epsilon_0 = 1e-3; // Softening factor
  * 
 */
 static double get_wall_time() {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  double seconds = tv.tv_sec + (double)tv.tv_usec / 1000000;
-  return seconds;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    double seconds = tv.tv_sec + (double)tv.tv_usec / 1000000;
+    return seconds;
 }
 
+
 // Function to read particles from a file
-void read_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N)
-{
+void read_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N) {
     double start = get_wall_time();
     FILE *file = fopen(filename, "rb");
-    if (!file)
-    {
+    if (!file) {
         perror("Error opening file");
-        exit(EXIT_FAILURE);
-    }
-
-    // Get the size of the file
-    fseek(file, 0, SEEK_END);
-    long filesize = ftell(file);
-    rewind(file);
-
-    // Calculate the number of particles in the file
-    int num_particles = filesize / (6 * sizeof(double));
-
-    // Check that the number of particles in the file matches the input
-    if (N != num_particles)
-    {
-        fprintf(stderr, "Warning: N (%d) is not equal to the number of particles in the file (%d)\n", N, num_particles);
         exit(EXIT_FAILURE);
     }
 
     // Read the particles
     size_t read_count = 0; 
-    for(int i = 0; i < N; i++)
-    {
+    for (int i = 0; i < N; i++) {
         read_count += fread(&x[i], sizeof(double), 1, file);
         read_count += fread(&y[i], sizeof(double), 1, file);
         read_count += fread(&mass[i], sizeof(double), 1, file);
@@ -60,9 +43,7 @@ void read_particles(const char *filename, double *x, double *y, double *mass, do
         read_count += fread(&brightness[i], sizeof(double), 1, file);
     }
 
-
-    if (read_count != 6 * N)
-    {
+    if (read_count != 6 * N) {
         fprintf(stderr, "Error reading particles from file\n");
         exit(EXIT_FAILURE);
     }
@@ -73,21 +54,18 @@ void read_particles(const char *filename, double *x, double *y, double *mass, do
 }
 
 // Function to write particles to a file
-void write_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N)
-{   
+void write_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N) {
     double start = get_wall_time();
     
     FILE *file = fopen(filename, "wb");
-    if (!file)
-    {
+    if (!file) {
         perror("Error opening file");
         exit(EXIT_FAILURE);
     }
 
     // Write the particles
     size_t write_count = 0;
-    for(int i = 0; i < N; i++)
-    {
+    for (int i = 0; i < N; i++) {
         write_count += fwrite(&x[i], sizeof(double), 1, file);
         write_count += fwrite(&y[i], sizeof(double), 1, file);
         write_count += fwrite(&mass[i], sizeof(double), 1, file);
@@ -96,64 +74,239 @@ void write_particles(const char *filename, double *x, double *y, double *mass, d
         write_count += fwrite(&brightness[i], sizeof(double), 1, file);
     }
 
-    if (write_count != 6 * N)
-    {
+    if (write_count != 6 * N) {
         fprintf(stderr, "Error writing particles to file\n");
         exit(EXIT_FAILURE);
     }
 
     fclose(file);
-
     double end = get_wall_time();
     printf("Time to write particles: %f\n", end - start);
 }
 
-// Function to calculate forces and update particles
-void calculate_forces_and_update(double *__restrict__ x, double *__restrict__ y, double *__restrict__ mass, double *__restrict__ vx, double *__restrict__ vy, double *__restrict__ fx, double *__restrict__ fy, int N, double delta_t, double G)
-{
-    // Zeroing out forces at the start of each function call
-    memset(fx, 0, N * sizeof(double));
-    memset(fy, 0, N * sizeof(double));
 
-    // Calculate forces
-    for (int i = 0; i < N; i++)
-    {
-        double fx_temp = 0.0;
-        double fy_temp = 0.0;
-        for (int j = i + 1; j < N; j++)
-        {
-            double dx = x[j] - x[i];
-            double dy = y[j] - y[i];
-            double r_sqrd = dx * dx + dy * dy;
-            double dist = sqrt(r_sqrd) + epsilon_0;
-            double r_cube = dist * dist * dist;
-            double force_over_dist = (G * mass[i] * mass[j]) / r_cube;
+// Quadtree node structure
+typedef struct QuadtreeNode {
+    double mass;                // Total mass of particles in this node (M)
+    double x_cm, y_cm;          // Center of mass coordinates
+    double x_min, x_max;        // Bounding box of this node x-axis
+    double y_min, y_max;        // Bounding box of this node y-axis
+    struct QuadtreeNode *nw;    // Pointer to northwest child node
+    struct QuadtreeNode *ne;    // Pointer to northeast child node
+    struct QuadtreeNode *sw;    // Pointer to southwest child node
+    struct QuadtreeNode *se;    // Pointer to southeast child node
+    int is_leaf;                // Flag to indicate if the node is a leaf
+    int particle_index;         // Index of the particle if this node is a leaf
+} QuadtreeNode;
 
-            double fx_force = force_over_dist * dx;
-            double fy_force = force_over_dist * dy;
 
-            fx_temp += fx_force;
-            fy_temp += fy_force;
-            fx[j] -= fx_force;
-            fy[j] -= fy_force;
+// Function to create a new quadtree node
+QuadtreeNode* create_node(double x_min, double x_max, double y_min, double y_max) {
+    QuadtreeNode *node = (QuadtreeNode *)malloc(sizeof(QuadtreeNode));
+    node->mass = 0.0;
+    node->x_cm = 0.0;
+    node->y_cm = 0.0;
+    node->x_min = x_min;
+    node->x_max = x_max;
+    node->y_min = y_min;
+    node->y_max = y_max;
+    node->is_leaf = 1;
+    node->particle_index = -1;                          // No particle initially
+    node->nw = node->ne = node->sw = node->se = NULL;   // Initialize children to NULL
+    return node;
+}
+
+// Function to insert a particle into the quadtree using the Barnes-Hut algorithm
+void insert_particle(QuadtreeNode *node, double x, double y, double mass, int index) {
+    if (!node) {
+        fprintf(stderr, "Error: Attempt to insert into a null node.\n");
+        return;
+    }
+
+    double mid_x = (node->x_min + node->x_max) / 2;
+    double mid_y = (node->y_min + node->y_max) / 2;
+
+    // If node does not contain a body, put the new body here
+    if (node->particle_index == -1 && node->is_leaf) {
+        node->x_cm = x;
+        node->y_cm = y;
+        node->mass = mass;
+        node->particle_index = index;
+        return;
+    }
+
+    // If node is an internal node, update the center-of-mass and total mass, and recursively insert the body
+    if (!node->is_leaf) {
+        node->mass += mass;
+        node->x_cm = (node->x_cm * (node->mass - mass) + x * mass) / node->mass;
+        node->y_cm = (node->y_cm * (node->mass - mass) + y * mass) / node->mass;
+
+        if (x <= mid_x) {
+            if (y <= mid_y) {
+                if (!node->nw) node->nw = create_node(node->x_min, mid_x, mid_y, node->y_max);
+                insert_particle(node->nw, x, y, mass, index);
+            } else {
+                if (!node->sw) node->sw = create_node(node->x_min, mid_x, node->y_min, mid_y);
+                insert_particle(node->sw, x, y, mass, index);
+            }
+        } else {
+            if (y <= mid_y) {
+                if (!node->ne) node->ne = create_node(mid_x, node->x_max, mid_y, node->y_max);
+                insert_particle(node->ne, x, y, mass, index);
+            } else {
+                if (!node->se) node->se = create_node(mid_x, node->x_max, node->y_min, mid_y);
+                insert_particle(node->se, x, y, mass, index);
+            }
         }
+        return;
+    }
 
-        fx[i] += fx_temp;
-        fy[i] += fy_temp;
+    // If node is an external node and contains a body, subdivide
+    if (node->is_leaf) {
+        node->is_leaf = 0;
+        int existing_index = node->particle_index;
+        double existing_x = node->x_cm;
+        double existing_y = node->y_cm;
+        double existing_mass = node->mass;
 
-        // Update velocity
-        vx[i] += delta_t * fx[i] / mass[i];
-        vy[i] += delta_t * fy[i] / mass[i];
+        // Create children nodes if they don't exist
+        if (!node->nw) node->nw = create_node(node->x_min, mid_x, mid_y, node->y_max);
+        if (!node->ne) node->ne = create_node(mid_x, node->x_max, mid_y, node->y_max);
+        if (!node->sw) node->sw = create_node(node->x_min, mid_x, node->y_min, mid_y);
+        if (!node->se) node->se = create_node(mid_x, node->x_max, node->y_min, mid_y);
 
-        // Update position
-        x[i] += vx[i] * delta_t;
-        y[i] += vy[i] * delta_t;
+        // Reinsert the existing particle
+        insert_particle(node, existing_x, existing_y, existing_mass, existing_index);
+
+        // Insert the new particle
+        insert_particle(node, x, y, mass, index);
+
+        // Update center of mass and total mass
+        node->mass = existing_mass + mass;
+        node->x_cm = (existing_x * existing_mass + x * mass) / node->mass;
+        node->y_cm = (existing_y * existing_mass + y * mass) / node->mass;
+    }
+}
+
+
+
+// Function to compute mass distribution in the quadtree
+void compute_mass_distribution(QuadtreeNode *node) {
+    if (node == NULL || node->is_leaf) return;
+
+    node->mass = 0.0;
+    node->x_cm = 0.0;
+    node->y_cm = 0.0;
+
+    if (node->nw != NULL) {
+        compute_mass_distribution(node->nw);
+        node->mass += node->nw->mass;
+        node->x_cm += node->nw->x_cm * node->nw->mass;
+        node->y_cm += node->nw->y_cm * node->nw->mass;
+    }
+    if (node->ne != NULL) {
+        compute_mass_distribution(node->ne);
+        node->mass += node->ne->mass;
+        node->x_cm += node->ne->x_cm * node->ne->mass;
+        node->y_cm += node->ne->y_cm * node->ne->mass;
+    }
+    if (node->sw != NULL) {
+        compute_mass_distribution(node->sw);
+        node->mass += node->sw->mass;
+        node->x_cm += node->sw->x_cm * node->sw->mass;
+        node->y_cm += node->sw->y_cm * node->sw->mass;
+    }
+    if (node->se != NULL) {
+        compute_mass_distribution(node->se);
+        node->mass += node->se->mass;
+        node->x_cm += node->se->x_cm * node->se->mass;
+        node->y_cm += node->se->y_cm * node->se->mass;
+    }
+
+    if (node->mass != 0.0) {
+        node->x_cm /= node->mass;
+        node->y_cm /= node->mass;
+    }
+}
+
+// Function to calculate forces using the Barnes-Hut algorithm
+void calculate_forces_barnes_hut(QuadtreeNode *node, double x, double y, double mass, double theta, double G, double *fx, double *fy) {
+    if (node == NULL) return;
+
+    double dx = node->x_cm - x;
+    double dy = node->y_cm - y;
+    double dist = sqrt(dx * dx + dy * dy) + epsilon_0;
+
+    if ((node->x_max - node->x_min) / dist < theta || node->is_leaf) {
+        if (node->particle_index != -1 && (dx != 0 || dy != 0)) {
+            double r_cube = dist * dist * dist;
+            double force = (G * mass * node->mass) / r_cube;
+            *fx += force * dx;
+            *fy += force * dy;
+        }
+    } else {
+        calculate_forces_barnes_hut(node->nw, x, y, mass, theta, G, fx, fy);
+        calculate_forces_barnes_hut(node->ne, x, y, mass, theta, G, fx, fy);
+        calculate_forces_barnes_hut(node->sw, x, y, mass, theta, G, fx, fy);
+        calculate_forces_barnes_hut(node->se, x, y, mass, theta, G, fx, fy);
+    }
+}
+
+// Function to free the quadtree
+void free_quadtree(QuadtreeNode *node) {
+    if (node == NULL) return;
+
+    if (node->nw != NULL) free_quadtree(node->nw);
+    if (node->ne != NULL) free_quadtree(node->ne);
+    if (node->sw != NULL) free_quadtree(node->sw);
+    if (node->se != NULL) free_quadtree(node->se);
+
+    free(node);
+}
+
+// Function to draw the quadtree
+void draw_quadtree(QuadtreeNode *node, double W, double H) {
+    if (node == NULL) return;
+
+    // Draw the bounding box of the node in green for internal nodes
+    if (node->x_max - node->x_min < W || node->y_max - node->y_min < H) {
+        DrawRectangle(node->x_min, node->y_min, W, H, node->x_max - node->x_min, node->y_max - node->y_min, 0.0);
+    } else {
+        // Draw the outer boundary in red
+        DrawRectangle(node->x_min, node->y_min, W, H, node->x_max - node->x_min, node->y_max - node->y_min, 1.0);
+    }
+
+    // Recursively draw the children nodes
+    draw_quadtree(node->nw, W, H);
+    draw_quadtree(node->ne, W, H);
+    draw_quadtree(node->sw, W, H);
+    draw_quadtree(node->se, W, H);
+}
+
+// Function to apply boundary conditions
+void apply_boundary_conditions(double *x, double *y, double *vx, double *vy, int N, double x_min, double x_max, double y_min, double y_max) {
+    for (int i = 0; i < N; i++) {
+        if (x[i] < x_min) {
+            x[i] = x_min;
+            vx[i] = -vx[i];
+        }
+        if (x[i] > x_max) {
+            x[i] = x_max;
+            vx[i] = -vx[i];
+        }
+        if (y[i] < y_min) {
+            y[i] = y_min;
+            vy[i] = -vy[i];
+        }
+        if (y[i] > y_max) {
+            y[i] = y_max;
+            vy[i] = -vy[i];
+        }
     }
 }
 
 // Function to run the simulation
-void run_simulation(int N, const char *filename, int nsteps, double delta_t, double G, int graphics)
-{
+void run_simulation(int N, const char *filename, int nsteps, double delta_t, double G, double theta, int graphics) {
     double start = get_wall_time();
 
     // Allocate memory for particles and forces
@@ -166,8 +319,7 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
     double *fx = (double *)malloc(N * sizeof(double));
     double *fy = (double *)malloc(N * sizeof(double));
 
-    if (x == NULL || y == NULL || mass == NULL || vx == NULL || vy == NULL || brightness == NULL || fx == NULL || fy == NULL)
-    {
+    if (x == NULL || y == NULL || mass == NULL || vx == NULL || vy == NULL || brightness == NULL || fx == NULL || fy == NULL) {
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
     }
@@ -175,51 +327,72 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
     read_particles(filename, x, y, mass, vx, vy, brightness, N);
 
     // Initialize graphics if requested
-    if (graphics)
-    {
+    if (graphics) {
         InitializeGraphics("Simulation", 800, 800);
         SetCAxes(0, 1);
     }
 
     // Main simulation loop
-    for (int step = 0; step < nsteps; step++)
-    {
-        // Calculate forces and update particles
-        calculate_forces_and_update(x, y, mass, vx, vy, fx, fy, N, delta_t, G);
+    for (int step = 0; step < nsteps; step++) {
+        // Build the quadtree
+        QuadtreeNode *root = create_node(0.0, 1.0, 0.0, 1.0);
+        for (int i = 0; i < N; i++) {
+            insert_particle(root, x[i], y[i], mass[i], i);
+        }
+        compute_mass_distribution(root);
 
-        // Draw particles if graphics is enabled
-        if (graphics)
-        {
+        // Calculate forces using Barnes-Hut
+        for (int i = 0; i < N; i++) {
+            double fx_temp = 0.0, fy_temp = 0.0;
+            calculate_forces_barnes_hut(root, x[i], y[i], mass[i], theta, G, &fx_temp, &fy_temp);
+            fx[i] = fx_temp;
+            fy[i] = fy_temp;
+        }
+
+        // Update particles
+        for (int i = 0; i < N; i++) {
+            vx[i] += delta_t * fx[i] / mass[i];
+            vy[i] += delta_t * fy[i] / mass[i];
+            x[i] += vx[i] * delta_t;
+            y[i] += vy[i] * delta_t;
+        }
+
+        // Apply boundary conditions
+        apply_boundary_conditions(x, y, vx, vy, N, 0.0, 1.0, 0.0, 1.0);
+
+        // Draw particles and quadtree if graphics is enabled
+        if (graphics) {
             ClearScreen();
-            for (int i = 0; i < N; i++)
-            {
-                // Draw each particle as a circle
-                DrawCircle(x[i], y[i], 1.0, 1.0, 0.003, 0.1);
+            for (int i = 0; i < N; i++) {
+                // Draw each particle as a circle, using brightness for color
+                DrawCircle(x[i], y[i], 1.0, 1.0, 0.002, 0); // Reduced radius for better visibility
             }
+            draw_quadtree(root, 1.0, 1.0);
             Refresh();
 
             // Delay to control animation speed
             usleep(3000);
         }
+
+        // Free quadtree
+        free_quadtree(root);
     }
+
+    // Write particle data to a file
+    write_particles("result.gal", x, y, mass, vx, vy, brightness, N);
 
     double end = get_wall_time();
     printf("Time to run simulation: %f\n", end - start);
-    
 
     // Close graphics if q is pressed
-    if (graphics)
-    {
-        while (!CheckForQuit())
-        {
+    if (graphics) {
+        while (!CheckForQuit()) {
             usleep(1000);
         }
         CloseDisplay();
     }
 
-
-    // Write particle data to a file
-    write_particles("result.gal", x, y, mass, vx, vy, brightness, N);
+    // Free allocated memory
     free(x);
     free(y);
     free(mass);
@@ -231,14 +404,12 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
 }
 
 // Main function
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     double start = get_wall_time();
 
     // Check for correct number of arguments
-    if (argc != 6)
-    {
-        fprintf(stderr, "Expected 5 arguments: N filename nsteps delta_t graphics\n");
+    if (argc != 7) {
+        fprintf(stderr, "Expected 6 arguments: N filename nsteps delta_t theta graphics\n");
         return 1;
     }
 
@@ -247,12 +418,12 @@ int main(int argc, char *argv[])
     const char *filename = argv[2];
     int nsteps = atoi(argv[3]);
     double delta_t = atof(argv[4]);
-    int graphics = atoi(argv[5]);
+    double theta = atof(argv[5]);
+    int graphics = atoi(argv[6]);
 
     // Check if the command-line arguments are valid
-    if (N <= 0 || nsteps < 0 || delta_t <= 0 || (graphics != 0 && graphics != 1))
-    {
-        fprintf(stderr, "Invalid arguments: N, nsteps and, delta_t must be positive, graphics must be 0 or 1\n");
+    if (N <= 0 || nsteps < 0 || delta_t <= 0 || theta < 0 || theta > 1 || (graphics != 0 && graphics != 1)) {
+        fprintf(stderr, "Invalid arguments: N, nsteps, delta_t must be positive, theta must be between 0 and 1, graphics must be 0 or 1\n");
         return 1;
     }
 
@@ -260,7 +431,7 @@ int main(int argc, char *argv[])
     const double G = 100.0 / N;
 
     // Run the simulation
-    run_simulation(N, filename, nsteps, delta_t, G, graphics);
+    run_simulation(N, filename, nsteps, delta_t, G, theta, graphics);
 
     double end = get_wall_time();
     printf("Total time: %f\n", end - start);
