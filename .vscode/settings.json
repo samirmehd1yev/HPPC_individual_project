@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "xlib.h": "c",
+        "__node_handle": "c"
+    }
+}

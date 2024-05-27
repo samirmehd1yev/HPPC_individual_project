@@ -21,16 +21,7 @@ static double get_wall_time() {
     double seconds = tv.tv_sec + (double)tv.tv_usec / 1000000;
     return seconds;
 }
-// Function prototypes
-typedef struct QuadtreeNode QuadtreeNode;
-QuadtreeNode* create_node(double x_min, double x_max, double y_min, double y_max);
-void insert_particle(QuadtreeNode *node, double x, double y, double mass, int index);
-void compute_mass_distribution(QuadtreeNode *node);
-void calculate_forces_barnes_hut(QuadtreeNode *node, double x, double y, double mass, double theta, double G, double *fx, double *fy);
-void free_quadtree(QuadtreeNode *node);
-void draw_quadtree(QuadtreeNode *node, double W, double H);
-void apply_boundary_conditions(double *x, double *y, double *vx, double *vy, int N, double x_min, double x_max, double y_min, double y_max);
-void normalize_brightness(double *brightness, int N);
+
 
 // Function to read particles from a file
 void read_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N) {
@@ -95,15 +86,15 @@ void write_particles(const char *filename, double *x, double *y, double *mass, d
 
 
 // Quadtree node structure
-struct QuadtreeNode {
+typedef struct QuadtreeNode {
     double mass;           // Total mass of particles in this node
     double x_cm, y_cm;     // Center of mass coordinates
     double x_min, x_max;   // Bounding box of this node
     double y_min, y_max;
-    QuadtreeNode *children[4]; // Array of pointers to child nodes
+    struct QuadtreeNode *children[4]; // Array of pointers to child nodes
     int is_leaf;           // Flag to indicate if the node is a leaf
     int particle_index;    // Index of the particle if this node is a leaf
-};
+} QuadtreeNode;
 
 // Enum to improve readability of accessing children
 typedef enum { NW = 0, NE = 1, SW = 2, SE = 3 } Quadrant;
@@ -126,7 +117,6 @@ QuadtreeNode* create_node(double x_min, double x_max, double y_min, double y_max
 
 // Function to insert a particle into the quadtree
 void insert_particle(QuadtreeNode *node, double x, double y, double mass, int index) {
-    // If node does not contain a body, put the new body here
     if (node->is_leaf && node->particle_index == -1) {
         node->x_cm = x;
         node->y_cm = y;
@@ -135,11 +125,11 @@ void insert_particle(QuadtreeNode *node, double x, double y, double mass, int in
         return;
     }
 
-    // If node is an internal node, update the center-of-mass and total mass, and recursively insert the body
     if (!node->is_leaf) {
+        double old_mass = node->mass;
         node->mass += mass;
-        node->x_cm = (node->x_cm * (node->mass - mass) + x * mass) / node->mass;
-        node->y_cm = (node->y_cm * (node->mass - mass) + y * mass) / node->mass;
+        node->x_cm = (node->x_cm * old_mass + x * mass) / node->mass;
+        node->y_cm = (node->y_cm * old_mass + y * mass) / node->mass;
 
         double mid_x = (node->x_min + node->x_max) / 2;
         double mid_y = (node->y_min + node->y_max) / 2;
@@ -148,18 +138,10 @@ void insert_particle(QuadtreeNode *node, double x, double y, double mass, int in
 
         if (node->children[quadrant] == NULL) {
             switch (quadrant) {
-                case NW:
-                    node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
-                    break;
-                case NE:
-                    node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
-                    break;
-                case SW:
-                    node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
-                    break;
-                case SE:
-                    node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
-                    break;
+                case NW: node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y); break;
+                case NE: node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y); break;
+                case SW: node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max); break;
+                case SE: node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max); break;
             }
         }
 
@@ -167,7 +149,6 @@ void insert_particle(QuadtreeNode *node, double x, double y, double mass, int in
         return;
     }
 
-    // If node is an external node and contains a body, subdivide
     if (node->is_leaf) {
         double mid_x = (node->x_min + node->x_max) / 2;
         double mid_y = (node->y_min + node->y_max) / 2;
@@ -178,19 +159,16 @@ void insert_particle(QuadtreeNode *node, double x, double y, double mass, int in
         double existing_y = node->y_cm;
         double existing_mass = node->mass;
 
-        // Create children nodes
         node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
         node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
         node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
         node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
 
-        // Reinsert the existing particle
         insert_particle(node, existing_x, existing_y, existing_mass, existing_index);
-
-        // Insert the new particle
         insert_particle(node, x, y, mass, index);
     }
 }
+
 
 // Function to compute mass distribution in the quadtree
 void compute_mass_distribution(QuadtreeNode *node) {
@@ -216,7 +194,7 @@ void compute_mass_distribution(QuadtreeNode *node) {
 }
 
 // Function to calculate forces using the Barnes-Hut algorithm
-void calculate_forces_barnes_hut(QuadtreeNode *node, double x, double y, double mass, double theta, double G, double *fx, double *fy) {
+void calculate_forces_barnes_hut(QuadtreeNode *node, double x, double y, double mass, double theta, double G, double *fx, double *fy, int current_particle_index) {
     if (node == NULL) return;
 
     double dx = node->x_cm - x;
@@ -224,7 +202,7 @@ void calculate_forces_barnes_hut(QuadtreeNode *node, double x, double y, double 
     double dist = sqrt(dx * dx + dy * dy) + epsilon_0;
 
     if ((node->x_max - node->x_min) / dist < theta || node->is_leaf) {
-        if (node->particle_index != -1 && (dx != 0 || dy != 0)) {
+        if (node->particle_index != -1 && node->particle_index != current_particle_index) {
             double r_cube = dist * dist * dist;
             double force = (G * mass * node->mass) / r_cube;
             *fx += force * dx;
@@ -232,10 +210,11 @@ void calculate_forces_barnes_hut(QuadtreeNode *node, double x, double y, double 
         }
     } else {
         for (int i = 0; i < 4; i++) {
-            calculate_forces_barnes_hut(node->children[i], x, y, mass, theta, G, fx, fy);
+            calculate_forces_barnes_hut(node->children[i], x, y, mass, theta, G, fx, fy, current_particle_index);
         }
     }
 }
+
 
 // Function to free the quadtree
 void free_quadtree(QuadtreeNode *node) {
@@ -253,19 +232,16 @@ void free_quadtree(QuadtreeNode *node) {
 void draw_quadtree(QuadtreeNode *node, double W, double H) {
     if (node == NULL) return;
 
-    // Draw the bounding box of the node in green for internal nodes
-    if (node->x_max - node->x_min < W || node->y_max - node->y_min < H) {
-        DrawRectangle(node->x_min, node->y_min, W, H, node->x_max - node->x_min, node->y_max - node->y_min, 0.0);
-    } else {
-        // Draw the outer boundary in red
-        DrawRectangle(node->x_min, node->y_min, W, H, node->x_max - node->x_min, node->y_max - node->y_min, 1.0);
-    }
+    // Draw the bounding box of the node
+    int nodeType = (node->x_max - node->x_min < W || node->y_max - node->y_min < H) ? 0 : 1;
+    DrawRectangle(node->x_min, node->y_min, W, H, node->x_max - node->x_min, node->y_max - node->y_min, nodeType);
 
     // Recursively draw the children nodes
     for (int i = 0; i < 4; i++) {
         draw_quadtree(node->children[i], W, H);
     }
 }
+
 
 // Function to apply boundary conditions
 void apply_boundary_conditions(double *x, double *y, double *vx, double *vy, int N, double x_min, double x_max, double y_min, double y_max) {
@@ -293,7 +269,6 @@ void apply_boundary_conditions(double *x, double *y, double *vx, double *vy, int
 void run_simulation(int N, const char *filename, int nsteps, double delta_t, double G, double theta, int graphics) {
     double start = get_wall_time();
 
-    // Allocate memory for particles and forces
     double *x = (double *)malloc(N * sizeof(double));
     double *y = (double *)malloc(N * sizeof(double));
     double *mass = (double *)malloc(N * sizeof(double));
@@ -310,30 +285,25 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
 
     read_particles(filename, x, y, mass, vx, vy, brightness, N);
 
-    // Initialize graphics if requested
     if (graphics) {
         InitializeGraphics("Simulation", 800, 800);
         SetCAxes(0, 1);
     }
 
-    // Main simulation loop
     for (int step = 0; step < nsteps; step++) {
-        // Build the quadtree
         QuadtreeNode *root = create_node(0.0, 1.0, 0.0, 1.0);
         for (int i = 0; i < N; i++) {
             insert_particle(root, x[i], y[i], mass[i], i);
         }
         compute_mass_distribution(root);
 
-        // Calculate forces using Barnes-Hut
         for (int i = 0; i < N; i++) {
             double fx_temp = 0.0, fy_temp = 0.0;
-            calculate_forces_barnes_hut(root, x[i], y[i], mass[i], theta, G, &fx_temp, &fy_temp);
+            calculate_forces_barnes_hut(root, x[i], y[i], mass[i], theta, G, &fx_temp, &fy_temp, i);
             fx[i] = fx_temp;
             fy[i] = fy_temp;
         }
 
-        // Update particles
         for (int i = 0; i < N; i++) {
             vx[i] += delta_t * fx[i] / mass[i];
             vy[i] += delta_t * fy[i] / mass[i];
@@ -341,34 +311,26 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
             y[i] += vy[i] * delta_t;
         }
 
-        // Apply boundary conditions
         apply_boundary_conditions(x, y, vx, vy, N, 0.0, 1.0, 0.0, 1.0);
 
-        // Draw particles and quadtree if graphics is enabled
         if (graphics) {
             ClearScreen();
             for (int i = 0; i < N; i++) {
-                // Draw each particle as a circle, using brightness for color
-                DrawCircle(x[i], y[i], 1.0, 1.0, 0.002, 0); // Reduced radius for better visibility
+                DrawCircle(x[i], y[i], 1.0, 1.0, 0.002, 0);
             }
             draw_quadtree(root, 1.0, 1.0);
             Refresh();
-
-            // Delay to control animation speed
             usleep(3000);
         }
 
-        // Free quadtree
         free_quadtree(root);
     }
 
-    // Write particle data to a file
     write_particles("result.gal", x, y, mass, vx, vy, brightness, N);
 
     double end = get_wall_time();
     printf("Time to run simulation: %f\n", end - start);
 
-    // Close graphics if q is pressed
     if (graphics) {
         while (!CheckForQuit()) {
             usleep(1000);
@@ -376,7 +338,6 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
         CloseDisplay();
     }
 
-    // Free allocated memory
     free(x);
     free(y);
     free(mass);
@@ -386,6 +347,7 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
     free(fx);
     free(fy);
 }
+
 
 // Main function
 int main(int argc, char *argv[]) {

@@ -12,7 +12,10 @@ galsim: $(OBJECTS)
 
 -include $(SOURCES:.c=.d)
 
-all: galsim 
+all: galsim compare
+
+compare: compare_gal_files/compare_gal_files.c
+	$(CC) -o compare_gal_files/compare_gal_files compare_gal_files/compare_gal_files.c
 
 memcheck: galsim
 	valgrind --leak-check=full ./galsim
@@ -20,4 +23,4 @@ memcheck: galsim
 .PHONY: clean all memcheck
 
 clean:
-	@rm -f *.o *.d galsim graphics/*.o graphics/*.d
+	@rm -f *.o *.d galsim graphics/*.o graphics/*.d compare_gal_files/compare_gal_files

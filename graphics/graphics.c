@@ -33,7 +33,7 @@ Window win;
 Pixmap pixmap;
 XEvent report;
 GC gc;
-unsigned black, white;
+unsigned black, white, green;
 unsigned width, height;
 unsigned colors[NUMCOLORS];
 float caxis[2];
@@ -112,63 +112,56 @@ GC create_gc(Display* display, Window win, int reverse_video)
 void InitializeGraphics(char *command, int windowWidth, int windowHeight) {
   int i;
   Screen *screen;
-  int screen_num;		/* number of screen to place the window on.  */
-  /* height and width of the X display
-  unsigned int display_width,
-               display_height;
-  */
-  char *display_name = getenv("DISPLAY");  /* address of the X display.      */
-  Colormap screen_colormap;     /* color map to use for allocating colors.   */
+  int screen_num;
+  char *display_name = getenv("DISPLAY");
+  Colormap screen_colormap;
   XColor color;
 
-  /* Set the height and width of the window */
-  width=windowWidth;
-  height=windowHeight;
+  width = windowWidth;
+  height = windowHeight;
 
-  /* open connection with the X server. */
   global_display_ptr = XOpenDisplay(display_name);
   if (global_display_ptr == NULL) {
     fprintf(stderr, "%s: cannot connect to X server '%s'\n", command, display_name);
     exit(1);
   }
 
-  /* get the geometry of the default screen for our display. */
   screen = ScreenOfDisplay(global_display_ptr, 0);
   screen_num = XScreenNumberOfScreen(screen);
-  /*
-  display_width = DisplayWidth(global_display_ptr, screen_num);
-  display_height = DisplayHeight(global_display_ptr, screen_num);
-  */
 
-  /* create a simple window, as a direct child of the screen's   */
-  /* root window. Use the screen's white color as the background */
-  /* color of the window. Place the new window's top-left corner */
-  /* at the given 'x,y' coordinates.                             */
   win = create_simple_window(global_display_ptr, width, height, 0, 0);
   pixmap = XCreatePixmap(global_display_ptr, win, width, height, DefaultDepthOfScreen(screen));
 
-  /* allocate a new GC (graphics context) for drawing in the window. */
   gc = create_gc(global_display_ptr, win, 0);
   XSync(global_display_ptr, False);
 
-  /* get access to the screen's color map. */
   screen_colormap = DefaultColormap(global_display_ptr, DefaultScreen(global_display_ptr));
 
-  black = BlackPixel(global_display_ptr,screen_num);
-  white = WhitePixel(global_display_ptr,screen_num);
+  black = BlackPixel(global_display_ptr, screen_num);
+  white = WhitePixel(global_display_ptr, screen_num);
 
-  /* Load the jet color map */
-  for(i=0;i<NUMCOLORS;i++) {
-    color.red=((double)(NUMCOLORS-i)/(double)NUMCOLORS)*0xFFFF;
-    color.blue=color.red;
-    color.green=color.red;
-    XAllocColor(global_display_ptr, screen_colormap,&color);    
-    colors[i]=color.pixel;
+  // Load the jet color map
+  for(i = 0; i < NUMCOLORS; i++) {
+    color.red = ((double)(NUMCOLORS - i) / (double)NUMCOLORS) * 0xFFFF;
+    color.blue = color.red;
+    color.green = color.red;
+    XAllocColor(global_display_ptr, screen_colormap, &color);
+    colors[i] = color.pixel;
   }
-  SetCAxes(0,1);
 
-  /* Set up the window to wait for a quit signal */
-  XSelectInput(global_display_ptr, win, ExposureMask | KeyPressMask | ButtonPressMask | ButtonReleaseMask );
+  // Define green color
+  color.red = 0;
+  color.green = 0xFFFF;
+  color.blue = 0;
+  if (!XAllocColor(global_display_ptr, screen_colormap, &color)) {
+    fprintf(stderr, "Failed to allocate green color\n");
+    exit(1);
+  }
+  green = color.pixel; // Store the green color pixel value
+
+  SetCAxes(0, 1);
+
+  XSelectInput(global_display_ptr, win, ExposureMask | KeyPressMask | ButtonPressMask | ButtonReleaseMask);
   XCopyArea(global_display_ptr, pixmap, win, gc, 0, 0, width, height, 0, 0);
   XMaskEvent(global_display_ptr, ExposureMask, &report);
 }
@@ -221,21 +214,14 @@ void DrawCircle(float x, float y, float W, float H, float radius, float color) {
 }
 
 void DrawRectangle(float x, float y, float W, float H, float dx, float dy, float color) {
-  int i=(int)(x/W*width);
-  int j=height-(int)((y+dy)/H*height);
-  int w=(int)(dx/W*width);
-  int h=(int)(dy/H*height);
-  int icolor;
+    int i = (int)(x / W * width);
+    int j = height - (int)((y + dy) / H * height);
+    int w = (int)(dx / W * width);
+    int h = (int)(dy / H * height);
 
-  if(color>=caxis[1])
-    icolor=NUMCOLORS-1;
-  else if(color<caxis[0])
-    icolor=0;
-  else
-    icolor=(int)((color-caxis[0])/(caxis[1]-caxis[0])*(float)NUMCOLORS);
-
-  XSetForeground(global_display_ptr, gc, colors[icolor]);
-  XDrawRectangle(global_display_ptr, pixmap, gc, i, j, w, h);
+    // Set the color to green
+    XSetForeground(global_display_ptr, gc, green);
+    XDrawRectangle(global_display_ptr, pixmap, gc, i, j, w, h);
 }
 
 void FlushDisplay(void) {
