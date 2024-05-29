@@ -13,28 +13,31 @@ const double epsilon_0 = 1e-3; // Softening factor
  * Code snippet from timings.c
  * Course: High Performance Programming, Uppsala University
  * Author: Elias Rudberg <elias.rudberg@it.uu.se>
- * 
-*/
-static double get_wall_time() {
+ *
+ */
+static double get_wall_time()
+{
     struct timeval tv;
     gettimeofday(&tv, NULL);
     double seconds = tv.tv_sec + (double)tv.tv_usec / 1000000;
     return seconds;
 }
 
-
 // Function to read particles from a file
-void read_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N) {
+void read_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N)
+{
     double start = get_wall_time();
     FILE *file = fopen(filename, "rb");
-    if (!file) {
+    if (!file)
+    {
         perror("Error opening file");
         exit(EXIT_FAILURE);
     }
 
     // Read the particles
-    size_t read_count = 0; 
-    for (int i = 0; i < N; i++) {
+    size_t read_count = 0;
+    for (int i = 0; i < N; i++)
+    {
         read_count += fread(&x[i], sizeof(double), 1, file);
         read_count += fread(&y[i], sizeof(double), 1, file);
         read_count += fread(&mass[i], sizeof(double), 1, file);
@@ -43,7 +46,8 @@ void read_particles(const char *filename, double *x, double *y, double *mass, do
         read_count += fread(&brightness[i], sizeof(double), 1, file);
     }
 
-    if (read_count != 6 * N) {
+    if (read_count != 6 * N)
+    {
         fprintf(stderr, "Error reading particles from file\n");
         exit(EXIT_FAILURE);
     }
@@ -54,18 +58,21 @@ void read_particles(const char *filename, double *x, double *y, double *mass, do
 }
 
 // Function to write particles to a file
-void write_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N) {
+void write_particles(const char *filename, double *x, double *y, double *mass, double *vx, double *vy, double *brightness, int N)
+{
     double start = get_wall_time();
-    
+
     FILE *file = fopen(filename, "wb");
-    if (!file) {
+    if (!file)
+    {
         perror("Error opening file");
         exit(EXIT_FAILURE);
     }
 
     // Write the particles
     size_t write_count = 0;
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < N; i++)
+    {
         write_count += fwrite(&x[i], sizeof(double), 1, file);
         write_count += fwrite(&y[i], sizeof(double), 1, file);
         write_count += fwrite(&mass[i], sizeof(double), 1, file);
@@ -74,7 +81,8 @@ void write_particles(const char *filename, double *x, double *y, double *mass, d
         write_count += fwrite(&brightness[i], sizeof(double), 1, file);
     }
 
-    if (write_count != 6 * N) {
+    if (write_count != 6 * N)
+    {
         fprintf(stderr, "Error writing particles to file\n");
         exit(EXIT_FAILURE);
     }
@@ -84,40 +92,54 @@ void write_particles(const char *filename, double *x, double *y, double *mass, d
     printf("Time to write particles: %f\n", end - start);
 }
 
+// QuadTree node structure
+typedef struct QuadTreeNode
+{
+    double mass;                      // Total mass of particles in this node
+    double x_cm, y_cm;                // Center of mass coordinates
+    double x_min, x_max;              // Bounds of box in this node (x-axis)
+    double y_min, y_max;              // Bounds of box in this node (y-axis)
+    struct QuadTreeNode *children[4]; // Pointers to child nodes
+    int is_leaf;                      // Flag to check if the node is leaf or not
+    int particle_index;               // Index of the particle if this node is a leaf, if empty node -1
+} QuadTreeNode;
 
-// Quadtree node structure
-typedef struct QuadtreeNode {
-    double mass;           // Total mass of particles in this node
-    double x_cm, y_cm;     // Center of mass coordinates
-    double x_min, x_max;   // Bounding box of this node
-    double y_min, y_max;
-    struct QuadtreeNode *children[4]; // Array of pointers to child nodes
-    int is_leaf;           // Flag to indicate if the node is a leaf
-    int particle_index;    // Index of the particle if this node is a leaf
-} QuadtreeNode;
+// Enum for me better understanding
+typedef enum
+{
+    NW = 0,
+    NE = 1,
+    SW = 2,
+    SE = 3
+} Quadrant;
 
-// Enum to improve readability of accessing children
-typedef enum { NW = 0, NE = 1, SW = 2, SE = 3 } Quadrant;
-
-// Function to create a new quadtree node
-QuadtreeNode* create_node(double x_min, double x_max, double y_min, double y_max) {
-    QuadtreeNode *node = (QuadtreeNode *)malloc(sizeof(QuadtreeNode));
-    node->mass = 0.0;
-    node->x_cm = 0.0;
-    node->y_cm = 0.0;
-    node->x_min = x_min;
-    node->x_max = x_max;
-    node->y_min = y_min;
-    node->y_max = y_max;
-    node->is_leaf = 1;
-    node->particle_index = -1; // No particle initially
-    for (int i = 0; i < 4; i++) node->children[i] = NULL; // Initialize children to NULL
+// Function to create a new quadtree node example: root node spans whole space which is (0,1)X(0,1) (Note: our particles from input_date/ located in this span)
+QuadTreeNode *create_node(double x_min, double x_max, double y_min, double y_max)
+{
+    QuadTreeNode *node = (QuadTreeNode *)malloc(sizeof(QuadTreeNode));
+    node->mass = 0.0;          // Initialize the total mass to 0
+    node->x_cm = 0.0;          // Initialize the x coordinate of the center of mass to 0
+    node->y_cm = 0.0;          // Initialize the y coordinate of the center of mass to 0
+    node->x_min = x_min;       // Set the minimum x boundary of the node
+    node->x_max = x_max;       // Set the maximum x boundary of the node
+    node->y_min = y_min;       // Set the minimum y boundary of the node
+    node->y_max = y_max;       // Set the maximum y boundary of the node
+    node->is_leaf = 1;         // Initially, the node is a leaf
+    node->particle_index = -1; // Identifier for particle. No particle in the node initially, its checked by -1
+    for (int i = 0; i < 4; i++)
+        node->children[i] = NULL; // Initialize children to NULL
     return node;
 }
 
 // Function to insert a particle into the quadtree
-void insert_particle(QuadtreeNode *node, double x, double y, double mass, int index) {
-    if (node->is_leaf && node->particle_index == -1) {
+void insert_particle(QuadTreeNode *node, double x, double y, double mass, int index)
+{
+    /* This if condition checks if the current node is a leaf node (i.e., it doesn't have any children)
+    and if there is no particle inside it yet (identified by particle_index being -1).
+    If both conditions are met, it means we can directly insert the particle into this node. */
+    if (node->is_leaf && node->particle_index == -1)
+    {
+        // Assign particle properties to the current node
         node->x_cm = x;
         node->y_cm = y;
         node->mass = mass;
@@ -125,103 +147,162 @@ void insert_particle(QuadtreeNode *node, double x, double y, double mass, int in
         return;
     }
 
-    if (!node->is_leaf) {
-        double old_mass = node->mass;
-        node->mass += mass;
+    /*  If the node is not a leaf node, we need to subdivide
+        and recursively insert the particle into one of its child nodes*/
+    if (!node->is_leaf)
+    {
+        double old_mass = node->mass; // Storing old mass bcs we will need it for calculating center of mass
+        node->mass += mass;           // Update the total mass of node
+
+        // Update the center of mass location using weighted averaging
         node->x_cm = (node->x_cm * old_mass + x * mass) / node->mass;
         node->y_cm = (node->y_cm * old_mass + y * mass) / node->mass;
 
+        // Calculate the midpoint of the node's bounding box
         double mid_x = (node->x_min + node->x_max) / 2;
         double mid_y = (node->y_min + node->y_max) / 2;
 
+        /*Determine which quadrant the particle belongs to
+            If (x <= mid_x) is true:
+                If (y <= mid_y) is true, the particle is in NW quadrant.
+                If (y <= mid_y) is false, the particle is in SW quadrant.
+            If (x <= mid_x) is false:
+                If (y <= mid_y) is true, the particle is in NE quadrant.
+                If (y <= mid_y) is false, the particle is in SE quadrant.
+            example: (0.2,0.6) is in SW if inserted to root node (0,1)X(0,1)*/
         Quadrant quadrant = (x <= mid_x) ? ((y <= mid_y) ? NW : SW) : ((y <= mid_y) ? NE : SE);
 
-        if (node->children[quadrant] == NULL) {
-            switch (quadrant) {
-                case NW: node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y); break;
-                case NE: node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y); break;
-                case SW: node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max); break;
-                case SE: node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max); break;
+        // If the child node of particle's quadrant doesn't exist, create it
+        if (node->children[quadrant] == NULL)
+        {
+            switch (quadrant)
+            {
+            case NW:
+                node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
+                break;
+            case NE:
+                node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
+                break;
+            case SW:
+                node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
+                break;
+            case SE:
+                node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
+                break;
             }
         }
 
+        // Recursively insert the particle into the appropriate child node
         insert_particle(node->children[quadrant], x, y, mass, index);
         return;
     }
 
-    if (node->is_leaf) {
+    /*  If the current node is a leaf node but already contains a particle,
+        subdivide it and reinsert both particles*/
+    if (node->is_leaf)
+    {
+        // Calculate the midpoint of the node's bounding box
         double mid_x = (node->x_min + node->x_max) / 2;
         double mid_y = (node->y_min + node->y_max) / 2;
 
+        // Change the current node to a non-leaf node
         node->is_leaf = 0;
+
+        // Store the properties of the existing particle
         int existing_index = node->particle_index;
         double existing_x = node->x_cm;
         double existing_y = node->y_cm;
         double existing_mass = node->mass;
 
+        // Create child nodes for each quadrant
         node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
         node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
         node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
         node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
 
+        // Reinsert the existing particle and the new particle into appropriate child nodes
         insert_particle(node, existing_x, existing_y, existing_mass, existing_index);
         insert_particle(node, x, y, mass, index);
     }
 }
 
-
 // Function to compute mass distribution in the quadtree
-void compute_mass_distribution(QuadtreeNode *node) {
-    if (node == NULL || node->is_leaf) return;
+void compute_mass_distribution(QuadTreeNode *node)
+{
+    // If the node is NULL or a leaf node, no computation is needed, so return
+    if (node == NULL || node->is_leaf)
+        return;
 
+    // Reset mass and center of mass properties for the current node, bcs we will aggregrate according to its children
     node->mass = 0.0;
     node->x_cm = 0.0;
     node->y_cm = 0.0;
 
-    for (int i = 0; i < 4; i++) {
-        if (node->children[i] != NULL) {
+    // Iterate over the child nodes
+    for (int i = 0; i < 4; i++)
+    {
+        // If the current child node exists
+        if (node->children[i] != NULL)
+        {
+            // Recursively compute mass distribution for the child node
             compute_mass_distribution(node->children[i]);
+            // Aggregate mass and weighted center of mass properties from child nodes
             node->mass += node->children[i]->mass;
             node->x_cm += node->children[i]->x_cm * node->children[i]->mass;
             node->y_cm += node->children[i]->y_cm * node->children[i]->mass;
         }
     }
 
-    if (node->mass != 0.0) {
+    // If the total mass of the current node is nonzero
+    if (node->mass != 0.0)
+    {
+        // Compute the center of mass for the current node
         node->x_cm /= node->mass;
         node->y_cm /= node->mass;
     }
 }
 
 // Function to calculate forces using the Barnes-Hut algorithm
-void calculate_forces_barnes_hut(QuadtreeNode *node, double x, double y, double mass, double theta, double G, double *fx, double *fy, int current_particle_index) {
-    if (node == NULL) return;
+void calculate_forces_barnes_hut(QuadTreeNode *node, double x, double y, double mass, double theta_threshold, double G, double *fx, double *fy, int current_particle_index)
+{
+    if (node == NULL)
+        return;
 
-    double dx = node->x_cm - x;
-    double dy = node->y_cm - y;
-    double dist = sqrt(dx * dx + dy * dy) + epsilon_0;
+    double dx = node->x_cm - x;                          // Difference between x-axis
+    double dy = node->y_cm - y;                          // Difference between y-axis
+    double dist = sqrt(dx * dx + dy * dy) + epsilon_0;   // Distance with softening factor
+    double theta = (node->x_max - node->x_min) / dist;   // Calculating theta value
 
-    if ((node->x_max - node->x_min) / dist < theta || node->is_leaf) {
-        if (node->particle_index != -1 && node->particle_index != current_particle_index) {
+    // If threshold meets threshold condition or its leaf node
+    if (theta <= theta_threshold || node->is_leaf)
+    {
+        if (node->particle_index != -1 && node->particle_index != current_particle_index)
+        {
             double r_cube = dist * dist * dist;
             double force = (G * mass * node->mass) / r_cube;
             *fx += force * dx;
             *fy += force * dy;
         }
-    } else {
-        for (int i = 0; i < 4; i++) {
-            calculate_forces_barnes_hut(node->children[i], x, y, mass, theta, G, fx, fy, current_particle_index);
+    }
+    else // Otherwise calculate implicitly
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            calculate_forces_barnes_hut(node->children[i], x, y, mass, theta_threshold, G, fx, fy, current_particle_index);
         }
     }
 }
 
-
 // Function to free the quadtree
-void free_quadtree(QuadtreeNode *node) {
-    if (node == NULL) return;
+void free_quadtree(QuadTreeNode *node)
+{
+    if (node == NULL)
+        return;
 
-    for (int i = 0; i < 4; i++) {
-        if (node->children[i] != NULL) {
+    for (int i = 0; i < 4; i++)
+    {
+        if (node->children[i] != NULL)
+        {
             free_quadtree(node->children[i]);
         }
     }
@@ -229,44 +310,80 @@ void free_quadtree(QuadtreeNode *node) {
 }
 
 // Function to draw the quadtree
-void draw_quadtree(QuadtreeNode *node, double W, double H) {
-    if (node == NULL) return;
+void draw_quadtree(QuadTreeNode *node, double W, double H)
+{
+    if (node == NULL)
+        return;
 
     // Draw the bounding box of the node
     int nodeType = (node->x_max - node->x_min < W || node->y_max - node->y_min < H) ? 0 : 1;
     DrawRectangle(node->x_min, node->y_min, W, H, node->x_max - node->x_min, node->y_max - node->y_min, nodeType);
 
     // Recursively draw the children nodes
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; i++)
+    {
         draw_quadtree(node->children[i], W, H);
     }
 }
 
 
-// Function to apply boundary conditions
-void apply_boundary_conditions(double *x, double *y, double *vx, double *vy, int N, double x_min, double x_max, double y_min, double y_max) {
+// Function to compute initial forces and accelerations
+void compute_initial_forces(int N, double *x, double *y, double *mass, double *fx, double *fy, double *ax, double *ay, double theta_threshold, double G) {
+    QuadTreeNode *root = create_node(0.0, 1.0, 0.0, 1.0);
+    for (int i = 0; i < N; i++)
+        insert_particle(root, x[i], y[i], mass[i], i);
+    compute_mass_distribution(root);
+
     for (int i = 0; i < N; i++) {
-        if (x[i] < x_min) {
-            x[i] = x_min;
-            vx[i] = -vx[i];
-        }
-        if (x[i] > x_max) {
-            x[i] = x_max;
-            vx[i] = -vx[i];
-        }
-        if (y[i] < y_min) {
-            y[i] = y_min;
-            vy[i] = -vy[i];
-        }
-        if (y[i] > y_max) {
-            y[i] = y_max;
-            vy[i] = -vy[i];
-        }
+        double fx_temp = 0.0, fy_temp = 0.0;
+        calculate_forces_barnes_hut(root, x[i], y[i], mass[i], theta_threshold, G, &fx_temp, &fy_temp, i);
+        fx[i] = fx_temp;
+        fy[i] = fy_temp;
+        ax[i] = fx[i] / mass[i];
+        ay[i] = fy[i] / mass[i];
+    }
+    free_quadtree(root);
+}
+
+// Function to update positions using the Velocity Verlet method
+void update_positions(int N, double *x, double *y, double *vx, double *vy, double *ax, double *ay, double delta_t) {
+    for (int i = 0; i < N; i++) {
+        x[i] += vx[i] * delta_t + 0.5 * ax[i] * delta_t * delta_t;
+        y[i] += vy[i] * delta_t + 0.5 * ay[i] * delta_t * delta_t;
+    }
+}
+
+// Function to recalculate forces and return the root of the quadtree
+QuadTreeNode* recalculate_forces(int N, double *x, double *y, double *mass, double *fx, double *fy, double theta_threshold, double G) {
+    QuadTreeNode *root = create_node(0.0, 1.0, 0.0, 1.0);
+    for (int i = 0; i < N; i++)
+        insert_particle(root, x[i], y[i], mass[i], i);
+    compute_mass_distribution(root);
+
+    for (int i = 0; i < N; i++) {
+        double fx_temp = 0.0, fy_temp = 0.0;
+        calculate_forces_barnes_hut(root, x[i], y[i], mass[i], theta_threshold, G, &fx_temp, &fy_temp, i);
+        fx[i] = fx_temp;
+        fy[i] = fy_temp;
+    }
+    return root;
+}
+
+// Function to update velocities using the Velocity Verlet method
+void update_velocities(int N, double *vx, double *vy, double *ax, double *ay, double *fx, double *fy, double *mass, double delta_t) {
+    for (int i = 0; i < N; i++) {
+        double ax_new = fx[i] / mass[i];
+        double ay_new = fy[i] / mass[i];
+        vx[i] += 0.5 * (ax[i] + ax_new) * delta_t;
+        vy[i] += 0.5 * (ay[i] + ay_new) * delta_t;
+        ax[i] = ax_new;
+        ay[i] = ay_new;
     }
 }
 
 // Function to run the simulation
-void run_simulation(int N, const char *filename, int nsteps, double delta_t, double G, double theta, int graphics) {
+void run_simulation(int N, const char *filename, int nsteps, double delta_t, double G, double theta_threshold, int graphics)
+{
     double start = get_wall_time();
 
     double *x = (double *)malloc(N * sizeof(double));
@@ -277,52 +394,46 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
     double *brightness = (double *)malloc(N * sizeof(double));
     double *fx = (double *)malloc(N * sizeof(double));
     double *fy = (double *)malloc(N * sizeof(double));
+    double *ax = (double *)malloc(N * sizeof(double));
+    double *ay = (double *)malloc(N * sizeof(double));
 
-    if (x == NULL || y == NULL || mass == NULL || vx == NULL || vy == NULL || brightness == NULL || fx == NULL || fy == NULL) {
+    if (!x || !y || !mass || !vx || !vy || !brightness || !fx || !fy || !ax || !ay)
+    {
         fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     read_particles(filename, x, y, mass, vx, vy, brightness, N);
 
-    if (graphics) {
+    if (graphics)
+    {
         InitializeGraphics("Simulation", 800, 800);
         SetCAxes(0, 1);
     }
 
-    for (int step = 0; step < nsteps; step++) {
-        QuadtreeNode *root = create_node(0.0, 1.0, 0.0, 1.0);
-        for (int i = 0; i < N; i++) {
-            insert_particle(root, x[i], y[i], mass[i], i);
-        }
-        compute_mass_distribution(root);
+    // Initial force and acceleration calculation
+    compute_initial_forces(N, x, y, mass, fx, fy, ax, ay, theta_threshold, G);
 
-        for (int i = 0; i < N; i++) {
-            double fx_temp = 0.0, fy_temp = 0.0;
-            calculate_forces_barnes_hut(root, x[i], y[i], mass[i], theta, G, &fx_temp, &fy_temp, i);
-            fx[i] = fx_temp;
-            fy[i] = fy_temp;
-        }
+    for (int step = 0; step < nsteps; step++)
+    {
+        // Update positions
+        update_positions(N, x, y, vx, vy, ax, ay, delta_t);
 
-        for (int i = 0; i < N; i++) {
-            vx[i] += delta_t * fx[i] / mass[i];
-            vy[i] += delta_t * fy[i] / mass[i];
-            x[i] += vx[i] * delta_t;
-            y[i] += vy[i] * delta_t;
-        }
+        // Recalculate forces and accelerations
+        QuadTreeNode *root = recalculate_forces(N, x, y, mass, fx, fy, theta_threshold, G);
 
-        apply_boundary_conditions(x, y, vx, vy, N, 0.0, 1.0, 0.0, 1.0);
+        // Update velocities
+        update_velocities(N, vx, vy, ax, ay, fx, fy, mass, delta_t);
 
-        if (graphics) {
+        if (graphics)
+        {
             ClearScreen();
-            for (int i = 0; i < N; i++) {
+            for (int i = 0; i < N; i++)
                 DrawCircle(x[i], y[i], 1.0, 1.0, 0.002, 0);
-            }
             draw_quadtree(root, 1.0, 1.0);
             Refresh();
             usleep(3000);
         }
-
         free_quadtree(root);
     }
 
@@ -331,10 +442,10 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
     double end = get_wall_time();
     printf("Time to run simulation: %f\n", end - start);
 
-    if (graphics) {
-        while (!CheckForQuit()) {
+    if (graphics)
+    {
+        while (!CheckForQuit())
             usleep(1000);
-        }
         CloseDisplay();
     }
 
@@ -346,41 +457,118 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
     free(brightness);
     free(fx);
     free(fy);
+    free(ax);
+    free(ay);
+}
+
+// Test function
+// Test function
+// Test function for one timestep
+// Test function for one timestep with larger values
+// Test function for one timestep with larger values
+void test_simulation()
+{
+    int N = 2;
+    double x[2] = {0.0, 10.0};
+    double y[2] = {0.0, 10.0};
+    double mass[2] = {1.0, 1.0};
+    double vx[2] = {1.0, -1.0};
+    double vy[2] = {1.0, -1.0};
+    double brightness[2] = {1.0, 1.0};
+    double fx[2], fy[2], ax[2], ay[2];
+    double theta_threshold = 0.5;
+    double G = 1.0;
+    double delta_t = 1.0;
+
+    // Initial force and acceleration calculation
+    compute_initial_forces(N, x, y, mass, fx, fy, ax, ay, theta_threshold, G);
+
+    printf("Initial positions and velocities:\n");
+    for (int i = 0; i < N; i++)
+    {
+        printf("Particle %d: x = %f, y = %f, vx = %f, vy = %f, ax = %f, ay = %f\n", i, x[i], y[i], vx[i], vy[i], ax[i], ay[i]);
+    }
+
+    // Update positions
+    update_positions(N, x, y, vx, vy, ax, ay, delta_t);
+
+    // Recalculate forces and accelerations
+    QuadTreeNode *root = recalculate_forces(N, x, y, mass, fx, fy, theta_threshold, G);
+
+    // Update velocities
+    update_velocities(N, vx, vy, ax, ay, fx, fy, mass, delta_t);
+
+    printf("\nAfter one timestep update:\n");
+    for (int i = 0; i < N; i++)
+    {
+        printf("Particle %d: x = %f, y = %f, vx = %f, vy = %f, ax = %f, ay = %f\n", i, x[i], y[i], vx[i], vy[i], ax[i], ay[i]);
+    }
+
+    free_quadtree(root);
 }
 
 
+
+
+
+
+
+
 // Main function
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     double start = get_wall_time();
 
     // Check for correct number of arguments
-    if (argc != 7) {
-        fprintf(stderr, "Expected 6 arguments: N filename nsteps delta_t theta graphics\n");
+    if (argc < 2)
+    {
+        fprintf(stderr, "Expected at least 1 argument: mode [test/sim] and optionally simulation parameters\n");
         return 1;
     }
 
-    // Parse command-line arguments
-    int N = atoi(argv[1]);
-    const char *filename = argv[2];
-    int nsteps = atoi(argv[3]);
-    double delta_t = atof(argv[4]);
-    double theta = atof(argv[5]);
-    int graphics = atoi(argv[6]);
+    // Check if the mode is test or sim
+    if (strcmp(argv[1], "test") == 0)
+    {
+        test_simulation();
+    }
+    else if (strcmp(argv[1], "sim") == 0)
+    {
+        if (argc != 7)
+        {
+            fprintf(stderr, "Expected 6 arguments for simulation: N filename nsteps delta_t theta_threshold graphics\n");
+            return 1;
+        }
 
-    // Check if the command-line arguments are valid
-    if (N <= 0 || nsteps < 0 || delta_t <= 0 || theta < 0 || theta > 1 || (graphics != 0 && graphics != 1)) {
-        fprintf(stderr, "Invalid arguments: N, nsteps, delta_t must be positive, theta must be between 0 and 1, graphics must be 0 or 1\n");
+        // Parse command-line arguments
+        int N = atoi(argv[2]);
+        const char *filename = argv[3];
+        int nsteps = atoi(argv[4]);
+        double delta_t = atof(argv[5]);
+        double theta_threshold = atof(argv[6]);
+        int graphics = atoi(argv[7]);
+
+        // Check if the command-line arguments are valid
+        if (N <= 0 || nsteps < 0 || delta_t <= 0 || theta_threshold < 0 || theta_threshold > 1 || (graphics != 0 && graphics != 1))
+        {
+            fprintf(stderr, "Invalid arguments: N, nsteps, delta_t must be positive, theta_threshold must be between 0 and 1, graphics must be 0 or 1\n");
+            return 1;
+        }
+
+        // Calculate the gravitational constant
+        const double G = 100.0 / N;
+
+        // Run the simulation
+        run_simulation(N, filename, nsteps, delta_t, G, theta_threshold, graphics);
+    }
+    else
+    {
+        fprintf(stderr, "Invalid mode: use 'test' for running the test or 'sim' for running the simulation\n");
         return 1;
     }
-
-    // Calculate the gravitational constant
-    const double G = 100.0 / N;
-
-    // Run the simulation
-    run_simulation(N, filename, nsteps, delta_t, G, theta, graphics);
 
     double end = get_wall_time();
     printf("Total time: %f\n", end - start);
 
     return 0;
 }
+

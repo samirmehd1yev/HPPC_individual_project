@@ -2,5 +2,6 @@
     "files.associations": {
         "xlib.h": "c",
         "__node_handle": "c"
-    }
+    },
+    "C_Cpp.default.compilerPath": "/usr/bin/clang"
 }
