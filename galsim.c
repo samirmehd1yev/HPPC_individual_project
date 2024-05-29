@@ -327,7 +327,7 @@ void draw_quadtree(QuadTreeNode *node, double W, double H)
 }
 
 
-// Function to compute initial forces and accelerations
+// Function to run the simulation
 void compute_initial_forces(int N, double *x, double *y, double *mass, double *fx, double *fy, double *ax, double *ay, double theta_threshold, double G) {
     QuadTreeNode *root = create_node(0.0, 1.0, 0.0, 1.0);
     for (int i = 0; i < N; i++)
@@ -345,7 +345,6 @@ void compute_initial_forces(int N, double *x, double *y, double *mass, double *f
     free_quadtree(root);
 }
 
-// Function to update positions using the Velocity Verlet method
 void update_positions(int N, double *x, double *y, double *vx, double *vy, double *ax, double *ay, double delta_t) {
     for (int i = 0; i < N; i++) {
         x[i] += vx[i] * delta_t + 0.5 * ax[i] * delta_t * delta_t;
@@ -353,7 +352,6 @@ void update_positions(int N, double *x, double *y, double *vx, double *vy, doubl
     }
 }
 
-// Function to recalculate forces and return the root of the quadtree
 QuadTreeNode* recalculate_forces(int N, double *x, double *y, double *mass, double *fx, double *fy, double theta_threshold, double G) {
     QuadTreeNode *root = create_node(0.0, 1.0, 0.0, 1.0);
     for (int i = 0; i < N; i++)
@@ -369,7 +367,6 @@ QuadTreeNode* recalculate_forces(int N, double *x, double *y, double *mass, doub
     return root;
 }
 
-// Function to update velocities using the Velocity Verlet method
 void update_velocities(int N, double *vx, double *vy, double *ax, double *ay, double *fx, double *fy, double *mass, double delta_t) {
     for (int i = 0; i < N; i++) {
         double ax_new = fx[i] / mass[i];
@@ -381,7 +378,6 @@ void update_velocities(int N, double *vx, double *vy, double *ax, double *ay, do
     }
 }
 
-// Function to run the simulation
 void run_simulation(int N, const char *filename, int nsteps, double delta_t, double G, double theta_threshold, int graphics)
 {
     double start = get_wall_time();
@@ -416,8 +412,7 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
 
     for (int step = 0; step < nsteps; step++)
     {
-        // Update positions
-        update_positions(N, x, y, vx, vy, ax, ay, delta_t);
+        
 
         // Recalculate forces and accelerations
         QuadTreeNode *root = recalculate_forces(N, x, y, mass, fx, fy, theta_threshold, G);
@@ -434,6 +429,8 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
             Refresh();
             usleep(3000);
         }
+        // Update positions
+        update_positions(N, x, y, vx, vy, ax, ay, delta_t);
         free_quadtree(root);
     }
 
@@ -461,56 +458,6 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
     free(ay);
 }
 
-// Test function
-// Test function
-// Test function for one timestep
-// Test function for one timestep with larger values
-// Test function for one timestep with larger values
-void test_simulation()
-{
-    int N = 2;
-    double x[2] = {0.0, 10.0};
-    double y[2] = {0.0, 10.0};
-    double mass[2] = {1.0, 1.0};
-    double vx[2] = {1.0, -1.0};
-    double vy[2] = {1.0, -1.0};
-    double brightness[2] = {1.0, 1.0};
-    double fx[2], fy[2], ax[2], ay[2];
-    double theta_threshold = 0.5;
-    double G = 1.0;
-    double delta_t = 1.0;
-
-    // Initial force and acceleration calculation
-    compute_initial_forces(N, x, y, mass, fx, fy, ax, ay, theta_threshold, G);
-
-    printf("Initial positions and velocities:\n");
-    for (int i = 0; i < N; i++)
-    {
-        printf("Particle %d: x = %f, y = %f, vx = %f, vy = %f, ax = %f, ay = %f\n", i, x[i], y[i], vx[i], vy[i], ax[i], ay[i]);
-    }
-
-    // Update positions
-    update_positions(N, x, y, vx, vy, ax, ay, delta_t);
-
-    // Recalculate forces and accelerations
-    QuadTreeNode *root = recalculate_forces(N, x, y, mass, fx, fy, theta_threshold, G);
-
-    // Update velocities
-    update_velocities(N, vx, vy, ax, ay, fx, fy, mass, delta_t);
-
-    printf("\nAfter one timestep update:\n");
-    for (int i = 0; i < N; i++)
-    {
-        printf("Particle %d: x = %f, y = %f, vx = %f, vy = %f, ax = %f, ay = %f\n", i, x[i], y[i], vx[i], vy[i], ax[i], ay[i]);
-    }
-
-    free_quadtree(root);
-}
-
-
-
-
-
 
 
 
@@ -520,51 +467,32 @@ int main(int argc, char *argv[])
     double start = get_wall_time();
 
     // Check for correct number of arguments
-    if (argc < 2)
+    if (argc != 7)
     {
-        fprintf(stderr, "Expected at least 1 argument: mode [test/sim] and optionally simulation parameters\n");
+        fprintf(stderr, "Expected 6 arguments: N filename nsteps delta_t theta_threshold graphics\n");
         return 1;
     }
 
-    // Check if the mode is test or sim
-    if (strcmp(argv[1], "test") == 0)
+    // Parse command-line arguments
+    int N = atoi(argv[1]);
+    const char *filename = argv[2];
+    int nsteps = atoi(argv[3]);
+    double delta_t = atof(argv[4]);
+    double theta_threshold = atof(argv[5]);
+    int graphics = atoi(argv[6]);
+
+    // Check if the command-line arguments are valid
+    if (N <= 0 || nsteps < 0 || delta_t <= 0 || theta_threshold < 0 || theta_threshold > 1 || (graphics != 0 && graphics != 1))
     {
-        test_simulation();
-    }
-    else if (strcmp(argv[1], "sim") == 0)
-    {
-        if (argc != 7)
-        {
-            fprintf(stderr, "Expected 6 arguments for simulation: N filename nsteps delta_t theta_threshold graphics\n");
-            return 1;
-        }
-
-        // Parse command-line arguments
-        int N = atoi(argv[2]);
-        const char *filename = argv[3];
-        int nsteps = atoi(argv[4]);
-        double delta_t = atof(argv[5]);
-        double theta_threshold = atof(argv[6]);
-        int graphics = atoi(argv[7]);
-
-        // Check if the command-line arguments are valid
-        if (N <= 0 || nsteps < 0 || delta_t <= 0 || theta_threshold < 0 || theta_threshold > 1 || (graphics != 0 && graphics != 1))
-        {
-            fprintf(stderr, "Invalid arguments: N, nsteps, delta_t must be positive, theta_threshold must be between 0 and 1, graphics must be 0 or 1\n");
-            return 1;
-        }
-
-        // Calculate the gravitational constant
-        const double G = 100.0 / N;
-
-        // Run the simulation
-        run_simulation(N, filename, nsteps, delta_t, G, theta_threshold, graphics);
-    }
-    else
-    {
-        fprintf(stderr, "Invalid mode: use 'test' for running the test or 'sim' for running the simulation\n");
+        fprintf(stderr, "Invalid arguments: N, nsteps, delta_t must be positive, theta_threshold must be between 0 and 1, graphics must be 0 or 1\n");
         return 1;
     }
+
+    // Calculate the gravitational constant
+    const double G = 100.0 / N;
+
+    // Run the simulation
+    run_simulation(N, filename, nsteps, delta_t, G, theta_threshold, graphics);
 
     double end = get_wall_time();
     printf("Total time: %f\n", end - start);
