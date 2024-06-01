@@ -15,7 +15,7 @@ galsim: $(OBJECTS)
 all: galsim compare
 
 compare: compare_gal_files/compare_gal_files.c
-	$(CC) -o compare_gal_files/compare_gal_files compare_gal_files/compare_gal_files.c
+	$(CC) -o compare_gal_files/compare_gal_files compare_gal_files/compare_gal_files.c -lm
 
 memcheck: galsim
 	valgrind --leak-check=full ./galsim

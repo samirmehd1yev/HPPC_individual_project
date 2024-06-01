@@ -3,5 +3,5 @@
         "xlib.h": "c",
         "__node_handle": "c"
     },
-    "C_Cpp.default.compilerPath": "/usr/bin/clang"
+    "C_Cpp.default.compilerPath": "/opt/homebrew/opt/llvm/bin/clang"
 }

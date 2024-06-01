@@ -98,11 +98,11 @@ typedef struct QuadTreeNode
 {
     double mass;                      // Total mass of particles in this node
     double x_cm, y_cm;                // Center of mass coordinates
-    double x_min, x_max;              // Bounding box of this node x-axis
-    double y_min, y_max;              // Bounding box of this node y-axis
-    struct QuadTreeNode *children[4]; // Array of pointers to child nodes
-    int is_leaf;                      // Flag to indicate if the node is a leaf
-    int particle_index;               // Index of the particle if this node is a leaf
+    double x_min, x_max;              // Bounds of box in this node (x-axis)
+    double y_min, y_max;              // Bounds of box in this node (y-axis)
+    struct QuadTreeNode *children[4]; // Pointers to child nodes
+    int is_leaf;                      // Flag to check if the node is leaf or not
+    int particle_index;               // Index of the particle if this node is a leaf, if empty node -1
 } QuadTreeNode;
 
 // Enum for me better understanding
@@ -114,19 +114,19 @@ typedef enum
     SE = 3
 } Quadrant;
 
-// Function to create a new quadtree node
+// Function to create a new quadtree node example: root node spans whole space which is (0,1)X(0,1) (Note: our particles from input_date/ located in this span)
 QuadTreeNode *create_node(double x_min, double x_max, double y_min, double y_max)
 {
     QuadTreeNode *node = (QuadTreeNode *)malloc(sizeof(QuadTreeNode));
-    node->mass = 0.0;
-    node->x_cm = 0.0;
-    node->y_cm = 0.0;
-    node->x_min = x_min;
-    node->x_max = x_max;
-    node->y_min = y_min;
-    node->y_max = y_max;
-    node->is_leaf = 1;
-    node->particle_index = -1; // No particle initially(empty node)
+    node->mass = 0.0;          // Initialize the total mass to 0
+    node->x_cm = 0.0;          // Initialize the x coordinate of the center of mass to 0
+    node->y_cm = 0.0;          // Initialize the y coordinate of the center of mass to 0
+    node->x_min = x_min;       // Set the minimum x boundary of the node
+    node->x_max = x_max;       // Set the maximum x boundary of the node
+    node->y_min = y_min;       // Set the minimum y boundary of the node
+    node->y_max = y_max;       // Set the maximum y boundary of the node
+    node->is_leaf = 1;         // Initially, the node is a leaf
+    node->particle_index = -1; // Identifier for particle. No particle in the node initially, its checked by -1
     for (int i = 0; i < 4; i++)
         node->children[i] = NULL; // Initialize children to NULL
     return node;
@@ -135,8 +135,10 @@ QuadTreeNode *create_node(double x_min, double x_max, double y_min, double y_max
 // Function to insert a particle into the quadtree
 void insert_particle(QuadTreeNode *node, double x, double y, double mass, int index)
 {
+    // Check if the node is a leaf and empty
     if (node->is_leaf && node->particle_index == -1)
     {
+        // Assign particle properties to the node
         node->x_cm = x;
         node->y_cm = y;
         node->mass = mass;
@@ -144,58 +146,81 @@ void insert_particle(QuadTreeNode *node, double x, double y, double mass, int in
         return;
     }
 
+    // If the node is not a leaf, update mass and center of mass, then insert into the appropriate child node
     if (!node->is_leaf)
     {
-        double old_mass = node->mass;
-        node->mass += mass;
-        node->x_cm = (node->x_cm * old_mass + x * mass) / node->mass;
-        node->y_cm = (node->y_cm * old_mass + y * mass) / node->mass;
-
+        // Determine which quadrant the particle belongs to
         double mid_x = (node->x_min + node->x_max) / 2;
         double mid_y = (node->y_min + node->y_max) / 2;
 
-        Quadrant quadrant = (x <= mid_x) ? ((y <= mid_y) ? NW : SW) : ((y <= mid_y) ? NE : SE);
+        /*Determine which quadrant the particle belongs to
+            If (x <= mid_x) is true:
+                If (y <= mid_y) is false, the particle is in NW quadrant.
+                If (y <= mid_y) is true, the particle is in SW quadrant.
+            If (x <= mid_x) is false:
+                If (y <= mid_y) is false, the particle is in NE quadrant.
+                If (y <= mid_y) is true, the particle is in SE quadrant.
+            example: (0.2,0.6) is in NW if inserted to root node (0,1)X(0,1)*/
+        Quadrant quadrant = (x <= mid_x) ? ((y > mid_y) ? NW : SW) : ((y > mid_y) ? NE : SE);
 
+        // Create the child node if it doesn't exist
         if (node->children[quadrant] == NULL)
         {
             switch (quadrant)
             {
             case NW:
-                node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
+                node->children[NW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
                 break;
             case NE:
-                node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
+                node->children[NE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
                 break;
             case SW:
-                node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
+                node->children[SW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
                 break;
             case SE:
-                node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
+                node->children[SE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
                 break;
             }
         }
 
+        // Recursively insert the particle into the appropriate child node
         insert_particle(node->children[quadrant], x, y, mass, index);
         return;
     }
 
+    // If the node is a leaf but already contains a particle, subdivide and reinsert both particles
     if (node->is_leaf)
     {
+        // Ensure the particles are not at the same position
+        if (node->x_cm == x && node->y_cm == y)
+        {
+            fprintf(stderr, "Error: Two particles are at the same position (%f, %f)\n", x, y);
+            exit(EXIT_FAILURE);
+        }
+
+        // Calculate the midpoint
         double mid_x = (node->x_min + node->x_max) / 2;
         double mid_y = (node->y_min + node->y_max) / 2;
 
+        // Change the node to a non-leaf node
         node->is_leaf = 0;
+
+        // Store existing particle's properties
         int existing_index = node->particle_index;
         double existing_x = node->x_cm;
         double existing_y = node->y_cm;
         double existing_mass = node->mass;
 
-        node->children[NW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
-        node->children[NE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
-        node->children[SW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
-        node->children[SE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
+        // Create child nodes
+        node->children[NW] = create_node(node->x_min, mid_x, mid_y, node->y_max);
+        node->children[NE] = create_node(mid_x, node->x_max, mid_y, node->y_max);
+        node->children[SW] = create_node(node->x_min, mid_x, node->y_min, mid_y);
+        node->children[SE] = create_node(mid_x, node->x_max, node->y_min, mid_y);
 
+        // Reinsert the existing particle
         insert_particle(node, existing_x, existing_y, existing_mass, existing_index);
+
+        // Insert the new particle
         insert_particle(node, x, y, mass, index);
     }
 }
@@ -203,58 +228,66 @@ void insert_particle(QuadTreeNode *node, double x, double y, double mass, int in
 // Function to compute mass distribution in the quadtree
 void compute_mass_distribution(QuadTreeNode *node)
 {
+    // If the node is NULL or a leaf node, no computation is needed, so return
     if (node == NULL || node->is_leaf)
         return;
 
+    // Reset mass and center of mass properties for the current node, bcs we will aggregrate according to its children
     node->mass = 0.0;
     node->x_cm = 0.0;
     node->y_cm = 0.0;
 
+    // Iterate over the child nodes
     for (int i = 0; i < 4; i++)
     {
+        // If the current child node exists
         if (node->children[i] != NULL)
         {
+            // Recursively compute mass distribution for the child node
             compute_mass_distribution(node->children[i]);
+            // Aggregate mass and weighted center of mass properties from child nodes
             node->mass += node->children[i]->mass;
             node->x_cm += node->children[i]->x_cm * node->children[i]->mass;
             node->y_cm += node->children[i]->y_cm * node->children[i]->mass;
         }
     }
 
+    // If the total mass of the current node is nonzero
     if (node->mass != 0.0)
     {
+        // Compute the center of mass for the current node
         node->x_cm /= node->mass;
         node->y_cm /= node->mass;
     }
 }
 
 // Function to calculate forces using the Barnes-Hut algorithm
-void calculate_forces_barnes_hut(QuadTreeNode *node, double x, double y, double mass, double theta, double G, double *fx, double *fy, int current_particle_index)
+void calculate_forces_barnes_hut(QuadTreeNode *node, double x, double y, double mass, double theta_threshold, double G, double *fx, double *fy, int current_particle_index)
 {
-    if (node == NULL)
+    if (node == NULL || (node->particle_index == current_particle_index && node->is_leaf))
         return;
 
-    double dx = node->x_cm - x;
-    double dy = node->y_cm - y;
-    double dist = sqrt(dx * dx + dy * dy) + epsilon_0;
+    double dx = node->x_cm - x;                        // Difference between x-axis
+    double dy = node->y_cm - y;                        // Difference between y-axis
+    double dist = sqrt(dx * dx + dy * dy) + epsilon_0; // Distance with softening factor
+    double theta = (node->x_max - node->x_min) / dist; // Calculating theta value
 
-    if ((node->x_max - node->x_min) / dist < theta || node->is_leaf)
+    // If threshold meets threshold condition or its leaf node
+    if (theta <= theta_threshold || node->is_leaf)
     {
-        if (node->particle_index != -1 && node->particle_index != current_particle_index)
+        if (node->mass > 0 && node->particle_index != current_particle_index)
         {
             double r_cube = dist * dist * dist;
             double force = (G * mass * node->mass) / r_cube;
-            #pragma omp atomic
             *fx += force * dx;
-            #pragma omp atomic
             *fy += force * dy;
         }
     }
-    else
+    else // Otherwise recursively check the children nodes
     {
         for (int i = 0; i < 4; i++)
         {
-            calculate_forces_barnes_hut(node->children[i], x, y, mass, theta, G, fx, fy, current_particle_index);
+            calculate_forces_barnes_hut(node->children[i], x, y, mass, theta_threshold, G, fx, fy, current_particle_index);
         }
     }
 }
@@ -346,12 +379,17 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
 
     for (int step = 0; step < nsteps; step++)
     {
-        // Update positions
+// Update positions
 #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < N; i++)
         {
             x[i] += vx[i] * delta_t + 0.5 * ax[i] * delta_t * delta_t;
             y[i] += vy[i] * delta_t + 0.5 * ay[i] * delta_t * delta_t;
+            if (x[i] < 0.0 || x[i] > 1.0 || y[i] < 0.0 || y[i] > 1.0)
+            {
+                // fprintf(stderr, "Error: Particle moved out of bounds at step %d: (%f, %f)\n", step, x[i], y[i]);
+                // exit(EXIT_FAILURE);
+            }
         }
 
         // Recompute forces and accelerations
@@ -369,12 +407,7 @@ void run_simulation(int N, const char *filename, int nsteps, double delta_t, dou
             calculate_forces_barnes_hut(root, x[i], y[i], mass[i], theta, G, &fx_temp, &fy_temp, i);
             fx[i] = fx_temp;
             fy[i] = fy_temp;
-        }
-
-        // Update velocities
-#pragma omp parallel for schedule(dynamic)
-        for (int i = 0; i < N; i++)
-        {
+            
             double ax_new = fx[i] / mass[i];
             double ay_new = fy[i] / mass[i];
             vx[i] += 0.5 * (ax[i] + ax_new) * delta_t;
