@@ -1,6 +1,6 @@
-CC=/opt/homebrew/opt/llvm/bin/clang
-CFLAGS=-g -Wall -MMD -O3 -ffast-math -march=native -fopenmp -I/usr/X11R6/include -ftree-vectorize
-LDFLAGS=-g -fopenmp -L/usr/X11R6/lib 
+CC=gcc
+CFLAGS=-g -Wall -MMD -O3 -ffast-math -march=native -fopenmp
+LDFLAGS=-g -fopenmp
 
 SOURCES=galsim.c ../graphics/graphics.c
 OBJECTS=$(SOURCES:.c=.o)
